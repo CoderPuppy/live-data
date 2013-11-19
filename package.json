@@ -3,6 +3,7 @@
 	"version": "0.0.0",
 	"author" : "CoderPuppy",
 	
+	"main"      : "lib/index.js",
 	"repository": "git://github.com/CoderPuppy/live-data",
 
 	"description": "Live data types built on scuttlebutt",
