@@ -1,0 +1,20 @@
+{
+	"name"   : "live-data",
+	"version": "0.0.0",
+	"author" : "CoderPuppy",
+	
+	"repository": "git://github.com/CoderPuppy/live-data",
+
+	"description": "Live data types built on scuttlebutt",
+
+	"dependencies": {
+		"scuttlebutt": "~5.6.8",
+		"r-value"    : "~1.1.5",
+		"r-array"    : "~0.5.1"
+	},
+
+	"devDependencies": {
+		"coffee-script": "*",
+		"nodemon"      : "*"
+	}
+}
