@@ -17,5 +17,11 @@
 	"devDependencies": {
 		"coffee-script": "*",
 		"nodemon"      : "*"
+	},
+
+	"scripts": {
+		"build-js": "coffee -c -o lib src",
+		"watch-js": "coffee -cw -o lib src",
+		"watch-npm": "nodemon -e json `which npm` install"
 	}
 }
