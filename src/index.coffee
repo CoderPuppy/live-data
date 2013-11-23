@@ -86,6 +86,10 @@ class LBase extends Scuttlebutt
 class LArray extends LBase
 	constructor: (vals...) ->
 		super()
+
+		# @on 'old_data', (update) ->
+		# 	console.log 'discarding update on LArray:', update
+
 		@_sb   = new RArray
 		@_db   = {}
 		@_rack = hat.rack()
@@ -99,11 +103,21 @@ class LArray extends LBase
 		@_sbKeys       = {}
 		@_dbKeys       = {}
 
+		# @_sb.on 'old_data', (update) ->
+		# 	console.log 'discarding update on R-Array:', update
+
 		@_sb.on 'update', (rawUpdate) =>
 			update = {}
 
 			for sbKey, key of rawUpdate
 				update[key] = @_db[key]
+
+			# console.log '_sb update:', update, rawUpdate
+
+			for sbKey, key of rawUpdate
+				if key?
+					@_sbKeys[key] = sbKey
+					@_dbKeys[sbKey] = key
 
 			@emit 'update', update
 
@@ -113,33 +127,33 @@ class LArray extends LBase
 					if @_updateBuffer[key]?
 						@emit 'update', @_sb.indexOfKey(sbKey), update[key], key, sbKey
 					else
-						@emit 'insert', @_sb.indexOfKey(sbKey), update[key], key, sbKey
+						@length.set @_sb.length
 
-						@length.set(@length.get() + 1)
+						@emit 'insert', @_sb.indexOfKey(sbKey), update[key], key, sbKey
 
 					@_updateBuffer[key] = update[key]
 				else # Delete
 					key = @_dbKeys[sbKey]
 
-					if @_updateBuffer[key]?
-						@emit 'remove', @_sb.indexOfKey(sbKey), @_updateBuffer[key], key, sbKey
+					# if key?
+					# 	console.log 'remove', key
+
+					if @_updateBuffer[key]? || @_db[key]?
+						@length.set @_sb.length
+
+						@emit 'remove', @_sb.indexOfKey(sbKey), @_updateBuffer[key] || @_db[key], key, sbKey
 						# delete @_updateBuffer[key]
 						# delete @_sbKeys[key]
 						# delete @_dbKeys[sbKey]
 						# delete @_hist[key]
 						# process.nextTick(((key) -> delete @_db[key]).bind(@, key))
-
-						@length.set(@length.get() - 1)
 					else
 						# I think this occurs when it's replaying and it tries to delete an element that doesn't exist
 						# console.log("the update is null and the buffer is null", update, rawUpdate, sbKey, key, @)
 						# throw new Error('the update is null and the buffer is null')
 
 			for sbKey, key of rawUpdate
-				if key?
-					@_sbKeys[key] = sbKey
-					@_dbKeys[sbKey] = key
-				else
+				if !key?
 					key = @_dbKeys[sbKey]
 					delete @_dbKeys[sbKey]
 					delete @_sbKeys[key]
@@ -172,6 +186,8 @@ class LArray extends LBase
 		key
 	_setIndex: (index, key) ->
 		@_sb.set @_sb.keys[index], key
+	_unset: (key) ->
+		@_sb.unset @_sbKeys[key]
 
 	push: (val) ->
 		key = @_register val
@@ -195,9 +211,16 @@ class LArray extends LBase
 		key = @_sb.shift()
 		@_db[key]
 
+	remove: (index) ->
+		@_sb.unset @_sb.keys[index]
+		@
+	
 	forEach: (fn) ->
 		for i in [0 .. @length.get() - 1]
-			fn(@get(i), i)
+			fn.call(@, @get(i), i)
+
+		@
+
 	each: (fn) -> @forEach(fn)
 
 	# TODO: Figure out how to implement indexOf
@@ -231,10 +254,16 @@ class LArray extends LBase
 					when 'c'
 						# [ 'c', key, childData ]
 						childUpdate = data[2].slice()
+						childUpdate.args = [ data[1] ]
 						childUpdate.custom = update
 
+						if Array.isArray(update.args)
+							childUpdate.args = childUpdate.args.concat(update.args)
+
+						# console.log 'sending update to mapper:', childUpdate
+
 						# childUpdate = db[data[1]]?.mapper(fn, subArgs..., childUpdate)
-						db[data[1]].write childUpdate
+						db[data[1]]?.write JSON.stringify(childUpdate)
 
 						# [ [ 'c', data[1], childUpdate[0] ], childUpdate[1], childUpdate[2] ]
 					when 'd'
@@ -242,11 +271,11 @@ class LArray extends LBase
 
 						mapper = LBase.types[data[2]].mapper(fn, subArgs...)
 						mapper.on 'data', (update) =>
-							@queue [ [ 'c', data[1], update[1] ], update[2][1], update[2][2] ]
+							@queue [ [ 'c', data[1], update ], update.custom[1][1], update.custom[1][2] ]
 
 						db[data[1]] = mapper
 
-						@queue [ [ 'd', data[1], data[2], LBase.types[data[2]].mapCreationArgs(fn, data[3]) ], update[1], update[2] ]
+						@queue [ [ 'd', data[1], data[2], LBase.types[data[2]].mapCreationArgs(fn, data[3], data[1]) ], update[1], update[2] ]
 					else
 						for sbKey, key of data
 							if key?
@@ -315,7 +344,7 @@ class LValue extends LBase
 			@set defaultVal
 
 	creationArgs: -> [@get()]
-	@mapCreationArgs: (fn, args) -> [ fn(args[0]) ]
+	@mapCreationArgs: (fn, args, subArgs...) -> [ fn(args[0], subArgs...) ]
 
 	set: (newValue) ->
 		if @get() != newValue
@@ -328,8 +357,15 @@ class LValue extends LBase
 	# mapper: (update, fn) -> [ fn(update[0]), update[1], update[2] ]
 	@mapper: (fn) ->
 		ss.json through (update) ->
+			# console.log 'update.args:', update.args
+
 			@queue if Array.isArray(update)
-				newUpdate = [ fn(update[0]), update[1], update[2] ]
+				args = [ update[0] ]
+
+				if Array.isArray(update.args)
+					args = args.concat(update.args)
+
+				newUpdate = [ fn(args...), update[1], update[2] ]
 				newUpdate.custom = update.custom
 				newUpdate
 			else
